@@ -3,6 +3,7 @@
 import sys
 import os.path
 import shutil
+import traceback
 
 VERSION = "0.1 (alpha)"
 PATCHWORK_FOLDER_NAME = '.patchwork'
@@ -138,8 +139,33 @@ from here are considered to be depended on the work done so far.
 		for file in args:
 			shutil.copyfile(file, snapshot_dir)
 
-def print_diff():
-	print 'displaying diff'
+def print_diff(args):
+
+	dst_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
+
+	if len(args) == 0:
+		print internal_diff(PATCHWORK_ROOT, dst_dir, exclude_list=[ PATCHWORK_FOLDER_NAME ])
+	else:
+		for file in args:
+			if not os.path.exists(file):
+				print_err_and_exit("file doesn't exist: %s" % file)
+
+		for file in args:
+			clone_name = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
+
+			if not os.path.exists(clone_name):
+				print 'New File: %s' % file
+				h = open(file, 'r')
+				for l in h.readline():
+					print '< %s' % h
+				h.close()
+			
+			diff = os.popen('diff "%s" "%s"' % (
+				file,
+				clone_name
+			))
+
+			print diff
 
 def perform_revert():
 	print 'reverting changes since last snapshot'
@@ -200,6 +226,42 @@ def copy_dir(src_dir, dst_dir, exclude_list=[]):
 		else:
 			shutil.copyfile(f, os.path.join(dst_dir, f))
 
+def internal_diff(src_dir, dst_dir, exclude_list=[]):
+
+	data = ''
+
+	for f in os.listdir(src_dir):
+
+		if f in exclude_list:
+			continue
+		
+		if os.path.exists(os.path.join(dst_dir, f)):
+			app_handle = os.popen('diff "%s" "%s"' % (
+				os.path.join(src_dir, f),
+				os.path.join(dst_dir, f)
+			), 'r')
+			diff = app_handle.read()
+			if diff:
+				data += 'File %s\n' % f
+				data += diff
+		else:
+			data += 'New File: %s' % f
+			f = open(os.path.join(src_dir, f), 'r')
+			for l in f.readline():
+				data += '> %s' % l
+			f.close()
+	
+	for f in os.listdir(dst_dir):
+
+		if not os.path.exists(os.path.join(src_dir, f)):
+			data += 'Deleted File %s' % f
+			f = open(os.path.join(dst_dir, f), 'r')
+			for l in f.readline():
+				data += '< %s' % l
+			f.close()
+
+	return data
+
 def print_usage():
 	print 'patchwork <cmd> <optional arguments>'
 	print 'commands can be from:'
@@ -234,68 +296,81 @@ def print_err_and_exit(err_msg):
 
 def run():
 
-	if len(sys.argv) < 2:
-		print_usage()
-	else:
+	try:
 
-		cmd = sys.argv[1]
-
-		move_to_patchwork_root()
-
-		if cmd != 'init' and PATCHWORK_ROOT is None:
-			print_err_and_exit("patchwork has not been configured. Run 'patchwork init'")
-		elif cmd != 'init':
-			load_patches()
-
-		if cmd in ('-h', '--help'):
+		if len(sys.argv) < 2:
 			print_usage()
-		elif cmd in ('-v', '--version'):
-			print_version()
-		elif cmd == 'init':
-			patchwork_init()
-		elif cmd == 'snapshot':
-			make_snapshot(sys.argv[2:])
-		elif cmd == 'diff':
-			print_diff()
-		elif cmd == 'revert':
-			perform_revert()
-		elif cmd == 'on':
-
-			if len(sys.argv) == 2:
-				print_err_and_exit('need argument <patch_name>')
-			else:
-				apply_patch(sys.argv[2])
-
-		elif cmd == 'off':
-
-			if len(sys.argv) == 2:
-				print_err_and_exit('need argument <patch_name> or "all"')
-			else:
-				remove_patch(sys.argv[2])
-
-		elif cmd == 'tag':
-
-			if len(sys.argv) == 2:
-				print_err_and_exit('need argument <patch_name>')
-			else:
-				tag_patch(sys.argv[2])
-
-		elif cmd == 'delete':
-			
-			if len(sys.argv) == 2:
-				print_err_and_exit('need argument <patch_name>')
-			else:
-				tag_patch(sys.argv[2])
-			
-		elif cmd == 'status':
-			print_status()
-
-		elif cmd == 'list_all':
-			show_all_patches()
-
 		else:
-			print_usage()
-			print_err_and_exit('unrecognised command: %s' % cmd)
+
+			cmd = sys.argv[1]
+
+			# dont pass debug flag around
+			args = sys.argv[2:]
+			if '-d' in args:
+				args.remove('-d')
+
+			move_to_patchwork_root()
+
+			if cmd != 'init' and PATCHWORK_ROOT is None:
+				print_err_and_exit("patchwork has not been configured. Run 'patchwork init'")
+			elif cmd != 'init':
+				load_patches()
+
+			if cmd in ('-h', '--help'):
+				print_usage()
+			elif cmd in ('-v', '--version'):
+				print_version()
+			elif cmd == 'init':
+				patchwork_init()
+			elif cmd == 'snapshot':
+				make_snapshot(args)
+			elif cmd == 'diff':
+				print_diff(args)
+			elif cmd == 'revert':
+				perform_revert()
+			elif cmd == 'on':
+
+				if len(args) == 0:
+					print_err_and_exit('need argument <patch_name>')
+				else:
+					apply_patch(args[0])
+
+			elif cmd == 'off':
+
+				if len(args) == 0:
+					print_err_and_exit('need argument <patch_name> or "all"')
+				else:
+					remove_patch(args[0])
+
+			elif cmd == 'tag':
+
+				if len(args) == 0:
+					print_err_and_exit('need argument <patch_name>')
+				else:
+					tag_patch(args[0])
+
+			elif cmd == 'delete':
+				
+				if len(sys.argv) == 0:
+					print_err_and_exit('need argument <patch_name>')
+				else:
+					tag_patch(args[0])
+				
+			elif cmd == 'status':
+				print_status()
+
+			elif cmd == 'list_all':
+				show_all_patches()
+
+			else:
+				print_usage()
+				print_err_and_exit('unrecognised command: %s' % cmd)
+
+	except Exception, e:
+		print 'Unexpected Error: %s' % str(e)
+		if '-d' in sys.argv:
+			traceback.print_exc()
+
 
 if __name__=='__main__':
 	run()
