@@ -365,7 +365,7 @@ def tag_patch(patch_name):
 	patch_obj = Patch(
 		patch_name,
 		True,
-		[],
+		get_dependencies(),
 		desc
 	)
 
@@ -488,42 +488,6 @@ def copy_dir(src_dir, dst_dir, exclude_list=[]):
 			)
 		else:
 			shutil.copyfile(f, os.path.join(dst_dir, f))
-
-def internal_diff(src_dir, dst_dir, exclude_list=[]):
-
-	data = ''
-
-	for f in os.listdir(src_dir):
-
-		if f in exclude_list:
-			continue
-		
-		if os.path.exists(os.path.join(dst_dir, f)):
-			app_handle = os.popen('diff "%s" "%s"' % (
-				os.path.join(src_dir, f),
-				os.path.join(dst_dir, f)
-			), 'r')
-			diff = app_handle.read()
-			if diff:
-				data += 'File %s\n' % f
-				data += diff
-		else:
-			data += 'New File: %s' % f
-			f = open(os.path.join(src_dir, f), 'r')
-			for l in f.readline():
-				data += '> %s' % l
-			f.close()
-	
-	for f in os.listdir(dst_dir):
-
-		if not os.path.exists(os.path.join(src_dir, f)):
-			data += 'Deleted File %s' % f
-			f = open(os.path.join(dst_dir, f), 'r')
-			for l in f.readline():
-				data += '< %s' % l
-			f.close()
-
-	return data
 
 def print_usage():
 	print 'patchwork <cmd> <optional arguments>'
