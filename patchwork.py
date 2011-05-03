@@ -354,6 +354,8 @@ def delete_patch(patch_name):
 def print_status():
 	applied_patches = [ p for p in PATCHES if p.is_applied ]
 
+	print "There are %s patches in this project." % len(PATCHES)
+
 	if len(applied_patches) > 0:
 		for p in applied_patches:
 			print 'ON  %s' % p.patch_name
@@ -480,7 +482,7 @@ def print_usage():
 	print '  delete <patch_name>                  delete a patch perminently from patchwork'
 	print '  status                               show the status of the working directory'
 	print '  describe <patch_name>                show the description of the patch'
-	print '  list_all                             list all the patches for a given system'
+	print '  list-all                             list all the patches for a given system'
 
 	print '\nFor more information read the documentation online at http://philliptaylor.net'
 
@@ -565,7 +567,7 @@ def run(sys_args):
 			elif cmd == 'describe':
 				print_describe(args[0])
 
-			elif cmd == 'list_all':
+			elif cmd == 'list-all':
 				show_all_patches()
 
 			else:
