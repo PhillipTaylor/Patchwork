@@ -13,15 +13,99 @@ TEMP_FILE = PATCHWORK_FOLDER_NAME + '/patchwork_tmp_file'
 PATCHWORK_ROOT = None
 PATCHES = []
 
+# patch names are filenames. (with .patchwork on the end)
 # disallowed patch names are: 'all' and 'END' or things that can't go in filenames
 
 class Patch():
 	
 	def __init__(self, patch_name, is_applied, dependencies, patch_desc):
+
+		for illegal_symbol in [ '\\', '/', '*', '.', '?', '"' ]:
+			if illegal_symbol in patch_name:
+				raise Exception('Invalid patch name')
+
 		self.patch_name = patch_name
 		self.is_applied = is_applied
 		self.dependencies = dependencies
 		self.patch_desc = patch_desc
+
+	@classmethod
+	def load_from_file(module, filename):
+
+		print 'loading data from %s' % filename
+		patch_file_data = open(filename, 'r')
+
+		# format of the file is:
+		# line     1: PATCHNAME: xxxx
+		# line     2: "DEPENDENCIES:"
+		# line   3-X: PATCHNAME of dependency
+		# line     X: END_DEPENDENCIES
+		# line X-EOF: DESCRIPTION put in by user
+
+		line1 = patch_file_data.readline()
+
+		if line1 is not None and line1.startswith('PATCHNAME: '):
+			patch_name = line1[11:-1]
+		else:
+			print_err_and_exit('Corrupted patchfile: line 1:%s' % patch_desc_file)
+
+		line2 = patch_file_data.readline()
+		if line2 is not None and line2 == 'APPLIED: ON\n':
+			patch_applied = True
+		elif line2 is not None and line2 == 'APPLIED: OFF\n':
+			patch_applied = False
+		else:
+			print_err_and_exit('Corrupted patchfile: line 2:%s' % patch_desc_file)
+
+		line3 = patch_file_data.readline()
+		if line3 is None or not line3 == 'DEPENDENCIES:\n':
+			print_err_and_exit('Corrupted patchfile: line 3:%s' % patch_desc_file)
+
+		dependencies = []
+
+		while True:
+			dep_name = patch_file_data.readline()
+
+			if dep_name == 'END\n':
+				break
+			else:
+				dependencies.append(dep_name[:-1])
+
+		patch_description = patch_file_data.read()
+
+		patch_file_data.close()
+
+		p = Patch(
+			patch_name,
+			patch_applied,
+			dependencies,
+			patch_description
+		)
+		
+		return p
+	
+	def save(self):
+		# write the description out.
+		outfile = os.path.join(
+			PATCHWORK_FOLDER_NAME,
+			self.patch_name,
+			'.patchwork'
+		)
+
+		f = open(outfile, 'w')
+		f.write('PATCHNAME: %s\n' % self.patch_name)
+
+		applied = 'ON' if self.is_applied else 'OFF'
+
+		f.write('APPLIED: %s\n' % applied)
+		f.write('DEPENDENCIES:\n')
+		for dep in self.dependencies:
+			f.write(dep + '\n')
+		f.write('END\n')
+		for l in self.patch_desc.split('\n'):
+			if not l.startswith('#'):
+				f.write(l + '\n')
+		f.close()
 
 def patchwork_init():
 	if PATCHWORK_ROOT is not None:
@@ -62,65 +146,17 @@ def load_patches():
 	global PATCHES
 
 	print "loading..."
-	patches_descriptors_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME)
+	patches_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME)
 
-	for patch_file in os.listdir(patches_descriptors_dir):
+	for patch_file in os.listdir(patches_dir):
 		if not fnmatch.fnmatch(patch_file, '*.patchwork'):
 			continue
 	
 		try:
 
-			patch_desc_file = os.path.join(patches_descriptors_dir, patch_file)
-			patch_file_data = open(patch_desc_file, 'r')
-
-			# format of the file is:
-			# line     1: PATCHNAME: xxxx
-			# line     2: "DEPENDENCIES:"
-			# line   3-X: PATCHNAME of dependency
-			# line     X: END_DEPENDENCIES
-			# line X-EOF: DESCRIPTION put in by user
-
-			line1 = patch_file_data.readline()
-
-			if line1 is not None and line1.startswith('PATCHNAME: '):
-				patch_name = line1[11:-1]
-			else:
-				print_err_and_exit('Corrupted patchfile: line 1:%s' % patch_desc_file)
-
-			line2 = patch_file_data.readline()
-			if line2 is not None and line2 == 'APPLIED: ON\n':
-				patch_applied = True
-			elif line2 is not None and line2 == 'APPLIED: OFF\n':
-				patch_applied = False
-			else:
-				print_err_and_exit('Corrupted patchfile: line 2:%s' % patch_desc_file)
-
-			line3 = patch_file_data.readline()
-			if line3 is None or not line3 == 'DEPENDENCIES:\n':
-				print_err_and_exit('Corrupted patchfile: line 3:%s' % patch_desc_file)
-
-			dependencies = []
-
-			while True:
-				dep_name = patch_file_data.readline()
-
-				if dep_name == 'END\n':
-					break
-				else:
-					dependencies.append(dep_name[:-1])
-
-			patch_description = patch_file_data.read()
-
-			patch_file_data.close()
-
-			p = Patch(
-				patch_name,
-				patch_applied,
-				dependencies,
-				patch_description
-			)
-			
-			PATCHES.append(p)
+			patch_desc_file = os.path.join(patches_dir, patch_file)
+			patch = Patch.load_from_file(patch_desc_file)
+			PATCHES.append(patch)
 
 		except (ValueError, IOError), e:
 			print_err_and_exit('Corrupted patchfile: %s', patch_desc_file)
@@ -310,18 +346,15 @@ def tag_patch(patch_name):
 		os.remove(TEMP_FILE)
 		return
 
-	# write the description out.
-	f = open(patch_name_prefix + '.patchwork', 'w')
-	f.write('PATCHNAME: %s\n' % patch_name)
-	f.write('APPLIED: ON\n')
-	f.write('DEPENDENCIES:\n')
-	for dep in get_dependencies():
-		f.write(dep + '\n')
-	f.write('END\n')
-	for l in desc.split('\n'):
-		if not l.startswith('#'):
-			f.write(l + '\n')
-	f.close()
+	# create patch
+	patch_obj = Patch(
+		patch_name,
+		True,
+		[],
+		desc
+	)
+
+	patch_obj.save()
 
 	# write the actual patch out.
 	f = open(patch_name_prefix + '.diff', 'w')
