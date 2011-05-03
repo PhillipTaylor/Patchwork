@@ -354,10 +354,9 @@ def delete_patch(patch_name):
 def print_status():
 	applied_patches = [ p for p in PATCHES if p.is_applied ]
 
-	print len(applied_patches)
-
-	for p in applied_patches:
-		'ON  %s' % p.patch_name
+	if len(applied_patches) > 0:
+		for p in applied_patches:
+			print 'ON  %s' % p.patch_name
 	else:
 		print "No patches are on"
 
