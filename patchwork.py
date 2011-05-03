@@ -242,6 +242,7 @@ def remove_patch(patch_name):
 
 def do_remove_patch(patch_name):
 
+		print "turning off patch: %s" % patch_name
 		patch = get_patch(patch_name)
 
 		patch_file = os.path.join(
@@ -250,7 +251,7 @@ def do_remove_patch(patch_name):
 			patch_name + '.diff'
 		)
 
-		patch_cmd = 'patch -u -i "%s"' % patch_file
+		patch_cmd = 'patch -uR -i "%s"' % patch_file
 
 		f = os.popen(patch_cmd)
 		patch_result = f.read()
