@@ -384,6 +384,9 @@ def print_describe(patch_name):
 
 def show_all_patches():
 
+	if len(PATCHES) == 0:
+		print "0 patches in this project"
+
 	applied_patches = [ p for p in PATCHES if p.is_applied ]
 	unapplied_patches = [ p for p in PATCHES if not p.is_applied ]
 
