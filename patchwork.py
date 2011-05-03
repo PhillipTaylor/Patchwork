@@ -127,16 +127,19 @@ def load_patches():
 
 # args expected to be list of files to take
 # a snapshot of, or empty list if everything
-def make_snapshot(args):
+def make_snapshot(args, force=False):
 
 	snapshot_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
 
 	if os.path.exists(snapshot_dir):
-		print_err_and_exit(
-		"""snapshot already exists. use 'patchwork revert' to undo those changes.
+		if force:
+			shutil.rmtree(os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot'))
+		else:
+			print_err_and_exit(
+			"""snapshot already exists. use 'patchwork revert' to undo those changes.
 alernatively use 'patchwork tag' to store this as a patch. Then changes
 from here are considered to be depended on the work done so far.
-		""")
+			""")
 
 	os.mkdir(snapshot_dir)
 
@@ -325,6 +328,9 @@ def tag_patch(patch_name):
 	f.write(diff)
 	f.close()
 
+	# apply the patch to the snapshot as well
+	make_snapshot([], force=True)
+
 	# remove at end, so if it fails they can
 	# recover their description again
 	os.remove(TEMP_FILE)
@@ -424,7 +430,7 @@ def copy_dir(src_dir, dst_dir, exclude_list=[]):
 		if os.path.isdir(f):
 			os.mkdir(os.path.join(dst_dir, f))
 
-			applicable_exclude_list = [ x for x in exclude_list if x.startswith('f' + '/') ]
+			applicable_exclude_list = [ x[len(f)+1:] for x in exclude_list if x.startswith(f + '/') ]
 
 			copy_dir(
 				os.path.join(src_dir, f),
