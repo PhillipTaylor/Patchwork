@@ -245,6 +245,12 @@ def apply_patch(patch_name):
 	f = os.popen(patch_cmd)
 	patch_result = f.read()
 	f.close()
+		
+	patch.is_applied = True
+	patch.save()
+
+	# update the snapshot.
+	make_snapshot([], force=True)
 
 def remove_patch(patch_name):
 
@@ -279,6 +285,12 @@ def do_remove_patch(patch_name):
 
 		print "turning off patch: %s" % patch_name
 		patch = get_patch(patch_name)
+
+		if patch is None:
+			print_err_and_exit('patch %s not found' % patch_name)
+
+		if not patch.is_applied:
+			print_err_and_exit('patch is not applied')
 
 		patch_file = os.path.join(
 			PATCHWORK_ROOT,
