@@ -32,7 +32,6 @@ class Patch():
 	@classmethod
 	def load_from_file(module, filename):
 
-		print 'loading data from %s' % filename
 		patch_file_data = open(filename, 'r')
 
 		# format of the file is:
@@ -86,10 +85,10 @@ class Patch():
 	
 	def save(self):
 		# write the description out.
+
 		outfile = os.path.join(
 			PATCHWORK_FOLDER_NAME,
-			self.patch_name,
-			'.patchwork'
+			self.patch_name + '.patchwork'
 		)
 
 		f = open(outfile, 'w')
@@ -294,6 +293,10 @@ def do_remove_patch(patch_name):
 		f.close()
 
 		patch.is_applied = False
+		patch.save()
+	
+		# update the snapshot.
+		make_snapshot([], force=True)
 
 def tag_patch(patch_name):
 	print 'creating patch %s' % patch_name
