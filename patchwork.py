@@ -4,9 +4,11 @@ import sys
 import os.path
 import shutil
 import traceback
+import fnmatch
 
 VERSION = "0.1 (alpha)"
-PATCHWORK_FOLDER_NAME = '.patchwork'
+PATCHWORK_FOLDER_NAME = 'patches'
+TEMP_FILE = PATCHWORK_FOLDER_NAME + '/patchwork_tmp_file'
 
 PATCHWORK_ROOT = None
 PATCHES = []
@@ -27,15 +29,17 @@ def patchwork_init():
 
 	try:
 		os.mkdir(PATCHWORK_FOLDER_NAME)
-		os.mkdir(PATCHWORK_FOLDER_NAME + '/patches')
-	
+
 	except OSError, e:
 		print_err_and_exit('could not init patchwork. %s' % e)
 
 def move_to_patchwork_root():
 	global PATCHWORK_ROOT
 
+	print "moving to patchwork root"
 	orig_cwd = os.getcwd()
+
+	print orig_cwd
 
 	while True:
 		if os.path.isdir(PATCHWORK_FOLDER_NAME):
@@ -57,61 +61,69 @@ def move_to_patchwork_root():
 def load_patches():
 	global PATCHES
 
-	patches_descriptors_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'patches')
+	print "loading..."
+	patches_descriptors_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME)
 
 	for patch_file in os.listdir(patches_descriptors_dir):
-		
-		patch_desc_file = os.path.join(patches_descriptors_dir, patch_file)
-		patch_file_data = open(patch_desc_file, 'r')
+		if not fnmatch.fnmatch(patch_file, '*.patchwork'):
+			continue
+	
+		try:
 
-		# format of the file is:
-		# line     1: PATCHNAME: xxxx
-		# line     2: "DEPENDENCIES:"
-		# line   3-X: PATCHNAME of dependency
-		# line     X: END_DEPENDENCIES
-		# line X-EOF: DESCRIPTION put in by user
+			patch_desc_file = os.path.join(patches_descriptors_dir, patch_file)
+			patch_file_data = open(patch_desc_file, 'r')
 
-		line1 = patch_file_data.readline()
+			# format of the file is:
+			# line     1: PATCHNAME: xxxx
+			# line     2: "DEPENDENCIES:"
+			# line   3-X: PATCHNAME of dependency
+			# line     X: END_DEPENDENCIES
+			# line X-EOF: DESCRIPTION put in by user
 
-		if line1 is None or not line1.startswith('PATCHNAME: '):
-			print_err_and_exit('Corrupted patchfile: line 1:%s' % patch_desc_file)
-		else:
-			patch_name = line1[11:-1]
+			line1 = patch_file_data.readline()
 
-		line2 = patch_file_data.readline()
-		if line2 is None or not line2 not in ('APPLIED: ON\n', 'APPLIED OFF\n'):
-			print_err_and_exit('Corrupted patchfile: line 2:%s' % patch_desc_file)
-		elif line2 == 'APPLIED_ON\n':
-			patch_applied = True
-		else:
-			patch_applied = False
-
-		line3 = patch_file_data.readline()
-		if line3 is None or not line3 == 'DEPENDENCIES:\n':
-			print_err_and_exit('Corrupted patchfile: line 3:%s' % patch_desc_file)
-
-		dependencies = []
-
-		while True:
-			dep_name = patch_file_data.readline()
-
-			if dep_name == 'END\n':
-				break
+			if line1 is not None and line1.startswith('PATCHNAME: '):
+				patch_name = line1[11:-1]
 			else:
-				dependencies.append(dep_name[:-1])
+				print_err_and_exit('Corrupted patchfile: line 1:%s' % patch_desc_file)
 
-		patch_description = patch_file_data.read()
+			line2 = patch_file_data.readline()
+			if line2 is not None and line2 == 'APPLIED: ON\n':
+				patch_applied = True
+			elif line2 is not None and line2 == 'APPLIED: OFF\n':
+				patch_applied = False
+			else:
+				print_err_and_exit('Corrupted patchfile: line 2:%s' % patch_desc_file)
 
-		patch_file_data.close()
+			line3 = patch_file_data.readline()
+			if line3 is None or not line3 == 'DEPENDENCIES:\n':
+				print_err_and_exit('Corrupted patchfile: line 3:%s' % patch_desc_file)
 
-		p = Patch(
-			patch_name,
-			patch_applied,
-			dependencies,
-			patch_description
-		)
-		
-		PATCHES.append(p)
+			dependencies = []
+
+			while True:
+				dep_name = patch_file_data.readline()
+
+				if dep_name == 'END\n':
+					break
+				else:
+					dependencies.append(dep_name[:-1])
+
+			patch_description = patch_file_data.read()
+
+			patch_file_data.close()
+
+			p = Patch(
+				patch_name,
+				patch_applied,
+				dependencies,
+				patch_description
+			)
+			
+			PATCHES.append(p)
+
+		except (ValueError, IOError), e:
+			print_err_and_exit('Corrupted patchfile: %s', patch_desc_file)
 
 # args expected to be list of files to take
 # a snapshot of, or empty list if everything
@@ -140,54 +152,234 @@ from here are considered to be depended on the work done so far.
 			shutil.copyfile(file, snapshot_dir)
 
 def print_diff(args):
+	print get_diff(args)
 
+def get_diff(args, reverse=False):
+
+	print "here"
 	dst_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
 
-	if len(args) == 0:
-		print internal_diff(PATCHWORK_ROOT, dst_dir, exclude_list=[ PATCHWORK_FOLDER_NAME ])
+	if reverse:
+		diff_cmd = 'diff -uN "%(root)s" "%(pw_dir)s/snapshot" --exclude="%(pw_dir)s"' % {
+			'root'   : PATCHWORK_ROOT,
+			'pw_dir' : PATCHWORK_FOLDER_NAME
+		}
 	else:
-		for file in args:
-			if not os.path.exists(file):
-				print_err_and_exit("file doesn't exist: %s" % file)
+		diff_cmd = 'diff -uN "%(pw_dir)s/snapshot" "%(root)s" --exclude="%(pw_dir)s"' % {
+			'root'   : PATCHWORK_ROOT,
+			'pw_dir' : PATCHWORK_FOLDER_NAME
+		}
 
-		for file in args:
-			clone_name = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
+	f = os.popen(diff_cmd)
+	diff = f.read()
+	return diff
 
-			if not os.path.exists(clone_name):
-				print 'New File: %s' % file
-				h = open(file, 'r')
-				for l in h.readline():
-					print '< %s' % h
-				h.close()
-			
-			diff = os.popen('diff "%s" "%s"' % (
-				file,
-				clone_name
-			))
+def perform_revert(args):
 
-			print diff
+	diff = get_diff(args, reverse=True)
 
-def perform_revert():
-	print 'reverting changes since last snapshot'
+	# write the actual patch out.
+	f = open(TEMP_FILE, 'w')
+	f.write(diff)
+	f.close()
+
+	# now revert it!
+	patch_cmd = 'patch -uN -i "%s"' % TEMP_FILE
+
+	f = os.popen(patch_cmd)
+	patch_result = f.read()
+	f.close()
 
 def apply_patch(patch_name):
-	print 'appling patch %s'
+
+	patch = get_patch(patch_name)
+	if patch.is_applied:
+		print_err_and_exit('patch already applied')
+
+	patch_filename = os.path.join(
+		PATCHWORK_ROOT,
+		PATCHWORK_FOLDER_NAME,
+		patch_name + '.diff'
+	)
+	
+	patch_cmd = 'patch -u -i "%s"' % patch_filename
+
+	f = os.popen(patch_cmd)
+	patch_result = f.read()
+	f.close()
 
 def remove_patch(patch_name):
-	print 'removing patch %s' % patch_name
+
+	if patch_name == 'all':
+
+		# turns off patches in the correct order...
+
+		patches_on = [ p for p in PATCHES if p.is_applied ]
+		patch_names = [ p.patch_name for p in patches_on ]
+		switch_off_order = []
+
+		while len(patches_on) > 0:
+
+			change_made = False
+
+			for p in patches_on:
+				if len([ dep for dep in p.dependencies in patch_names ]) == 0:
+					switch_off_order.append(p)
+					patch_names.remove(p.patch_name)
+					change_made = True
+
+			if not change_made:
+				print_err_and_exit('dependency loop?: %s', patch_names)
+		
+		for p in switch_off_order:
+			do_remove_patch(p.patch_name)
+
+	else:
+		do_remove_patch(patch_name)
+
+def do_remove_patch(patch_name):
+
+		patch = get_patch(patch_name)
+
+		patch_file = os.path.join(
+			PATCHWORK_ROOT,
+			PATCHWORK_FOLDER_NAME,
+			patch_name + '.diff'
+		)
+
+		patch_cmd = 'patch -u -i "%s"' % patch_file
+
+		f = os.popen(patch_cmd)
+		patch_result = f.read()
+		f.close()
+
+		patch.is_applied = False
 
 def tag_patch(patch_name):
 	print 'creating patch %s' % patch_name
 
+	diff = get_diff(None)
+
+	patches_path = os.path.join(
+		PATCHWORK_ROOT,
+		PATCHWORK_FOLDER_NAME,
+	)
+
+	patch_name_prefix = os.path.join(
+		patches_path,
+		patch_name
+	)
+
+	default_msg = """
+	
+# Enter the description for patch %s.
+# Lines beginning with a hash are ignored.
+#
+#
+""" % patch_name
+
+	for d in diff.split('\n'):
+		default_msg += '\n#%s' % d
+
+	# this is here so if the user entered
+	# a description and the program blew up
+	# (maybe some readonly permission was set)
+	# they dont have to enter it again
+	if not os.path.exists(TEMP_FILE):
+		f = open(TEMP_FILE, 'w')
+		f.write(default_msg)
+		f.close()
+
+	if 'EDITOR' in os.environ:
+		editor = os.environ['EDITOR']
+	else:
+		editor = 'vim'
+
+	os.system('%s "%s"' % (editor, TEMP_FILE))
+
+	f = open(TEMP_FILE, 'r')
+	desc = f.read()
+	f.close()
+
+	if desc == default_msg:
+		print 'abandoned because user cancelled'
+		os.remove(TEMP_FILE)
+		return
+
+	# write the description out.
+	f = open(patch_name_prefix + '.patchwork', 'w')
+	f.write('PATCHNAME: %s\n' % patch_name)
+	f.write('APPLIED: ON\n')
+	f.write('DEPENDENCIES:\n')
+	for dep in get_dependencies():
+		f.write(dep + '\n')
+	f.write('END\n')
+	for l in desc.split('\n'):
+		if not l.startswith('#'):
+			f.write(l + '\n')
+	f.close()
+
+	# write the actual patch out.
+	f = open(patch_name_prefix + '.diff', 'w')
+
+	f.write(diff)
+	f.close()
+
+	# remove at end, so if it fails they can
+	# recover their description again
+	os.remove(TEMP_FILE)
+
+def get_dependencies():
+	return [ p.patch_name for p in PATCHES if p.is_applied ]
+
 def delete_patch(patch_name):
-	print 'deleting patch'
+	global PATCHES
+
+	patch = get_patch(patch_name)
+	if patch is None:
+		print_err_and_exit('patch %s not found')
+
+	PATCHES.remove(patch)
+
+	prefix = os.path.join(
+		PATCHWORK_ROOT,
+		PATCHWORK_FOLDER_NAME,
+		patch_name
+	)
+
+	os.remove(prefix + '.diff')
+	os.remove(prefix + '.patchwork')
+
 
 def print_status():
-	print 'status'
+	applied_patches = [ p for p in PATCHES if p.is_applied ]
 
-def describe(patch_name):
+	print len(applied_patches)
+
+	for p in applied_patches:
+		'ON  %s' % p.patch_name
+	else:
+		print "No patches are on"
+
+def print_describe(patch_name):
 	print 'describing %s' % patch_name
 
+	patch = get_patch(patch_name)
+
+	if patch is None:
+		print_err_and_exit('patch %s not found' % patch_name)
+
+	print "Patch Name: %s" % patch.patch_name
+	print "Applied:    %s" % patch.is_applied
+
+	if len(patch.dependencies) > 0:
+		print "Dependency List: "
+		for d in patch.dependencies:
+			print "\t%s" % d
+	else:
+		print "No dependencies"
+	
+	print "Description: %s" % patch.patch_desc
 
 def show_all_patches():
 
@@ -201,10 +393,22 @@ def show_all_patches():
 		print 'OFF %s' % p.patch_name
 
 def export_patch(patch_name):
-	print 'export patch'
+	# TODO: export a patch (basically print
+	# the contents of the .patch file to screen)
+	pass
 
-def import_patch(patch_name):
-	print 'import patch'
+def import_patch(patch_file):
+	# TODO: import a patch. Basically apply the
+	# patch to the current tree and invoke 'tag'
+	pass
+
+def get_patch(patch_name):
+
+	for p in PATCHES:
+		if p.patch_name == patch_name:
+			return p
+	
+	return None
 
 def copy_dir(src_dir, dst_dir, exclude_list=[]):
 
@@ -294,18 +498,18 @@ def print_err_and_exit(err_msg):
 	print 'Error: %s' % err_msg
 	sys.exit(1)
 
-def run():
+def run(sys_args):
 
 	try:
 
-		if len(sys.argv) < 2:
+		if len(sys_args) < 2:
 			print_usage()
 		else:
 
-			cmd = sys.argv[1]
+			cmd = sys_args[1]
 
 			# dont pass debug flag around
-			args = sys.argv[2:]
+			args = sys_args[2:]
 			if '-d' in args:
 				args.remove('-d')
 
@@ -327,7 +531,7 @@ def run():
 			elif cmd == 'diff':
 				print_diff(args)
 			elif cmd == 'revert':
-				perform_revert()
+				perform_revert(args)
 			elif cmd == 'on':
 
 				if len(args) == 0:
@@ -351,13 +555,16 @@ def run():
 
 			elif cmd == 'delete':
 				
-				if len(sys.argv) == 0:
+				if len(sys_args) == 0:
 					print_err_and_exit('need argument <patch_name>')
 				else:
 					tag_patch(args[0])
 				
 			elif cmd == 'status':
 				print_status()
+
+			elif cmd == 'describe':
+				print_describe(args[0])
 
 			elif cmd == 'list_all':
 				show_all_patches()
@@ -368,9 +575,9 @@ def run():
 
 	except Exception, e:
 		print 'Unexpected Error: %s' % str(e)
-		if '-d' in sys.argv:
+		if '-d' in sys_args:
 			traceback.print_exc()
 
 
 if __name__=='__main__':
-	run()
+	run(sys.argv)
