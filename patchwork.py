@@ -13,6 +13,8 @@ TEMP_FILE = PATCHWORK_FOLDER_NAME + '/patchwork_tmp_file'
 PATCHWORK_ROOT = None
 PATCHES = []
 
+DEBUG = False
+
 # patch names are filenames. (with .patchwork on the end)
 # disallowed patch names are: 'all' and 'END' or things that can't go in filenames
 
@@ -31,6 +33,7 @@ class Patch():
 
 	@classmethod
 	def load_from_file(module, filename):
+		log('load patch from file: %s' % filename)
 
 		patch_file_data = open(filename, 'r')
 
@@ -119,10 +122,7 @@ def patchwork_init():
 def move_to_patchwork_root():
 	global PATCHWORK_ROOT
 
-	print "moving to patchwork root"
 	orig_cwd = os.getcwd()
-
-	print orig_cwd
 
 	while True:
 		if os.path.isdir(PATCHWORK_FOLDER_NAME):
@@ -144,7 +144,6 @@ def move_to_patchwork_root():
 def load_patches():
 	global PATCHES
 
-	print "loading..."
 	patches_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME)
 
 	for patch_file in os.listdir(patches_dir):
@@ -194,7 +193,6 @@ def print_diff(args):
 
 def get_diff(args, reverse=False):
 
-	print "here"
 	dst_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
 
 	if reverse:
@@ -229,10 +227,15 @@ def perform_revert(args):
 	f.close()
 
 def apply_patch(patch_name):
+	log("applying %s" % patch_name)
 
 	patch = get_patch(patch_name)
 	if patch.is_applied:
 		print_err_and_exit('patch already applied')
+	
+	# time to switch on dependencies.
+	for dependency in patch.dependencies:
+		apply_patch(dependency)
 
 	patch_filename = os.path.join(
 		PATCHWORK_ROOT,
@@ -283,7 +286,7 @@ def remove_patch(patch_name):
 
 def do_remove_patch(patch_name):
 
-		print "turning off patch: %s" % patch_name
+		log("turning off patch: %s" % patch_name)
 		patch = get_patch(patch_name)
 
 		if patch is None:
@@ -311,7 +314,6 @@ def do_remove_patch(patch_name):
 		make_snapshot([], force=True)
 
 def tag_patch(patch_name):
-	print 'creating patch %s' % patch_name
 
 	diff = get_diff(None)
 
@@ -357,9 +359,8 @@ def tag_patch(patch_name):
 	f.close()
 
 	if desc == default_msg:
-		print 'abandoned because user cancelled'
 		os.remove(TEMP_FILE)
-		return
+		print_err_and_exit('abandoned because user cancelled')
 
 	# create patch
 	patch_obj = Patch(
@@ -517,11 +518,16 @@ def print_version():
 	PARTICULAR PURPOSE
 	""" % VERSION
 
+def log(msg):
+	if DEBUG:
+		print 'LOG> %s' % msg
+
 def print_err_and_exit(err_msg):
 	print 'Error: %s' % err_msg
 	sys.exit(1)
 
 def run(sys_args):
+	global DEBUG
 
 	try:
 
@@ -529,15 +535,18 @@ def run(sys_args):
 			print_usage()
 		else:
 
-			cmd = sys_args[1]
-
 			# dont pass debug flag around
+			if '-d' in sys_args:
+				sys_args.remove('-d')
+				DEBUG = True
+
+			cmd = sys_args[1]
 			args = sys_args[2:]
-			if '-d' in args:
-				args.remove('-d')
 
 			move_to_patchwork_root()
 
+			# patchwork 'init' runs without loading patches. the rest
+			# expect them.
 			if cmd != 'init' and PATCHWORK_ROOT is None:
 				print_err_and_exit("patchwork has not been configured. Run 'patchwork init'")
 			elif cmd != 'init':
