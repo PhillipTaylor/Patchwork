@@ -255,63 +255,51 @@ def apply_patch(patch_name):
 	# update the snapshot.
 	make_snapshot([], force=True)
 
-def remove_patch(patch_name):
+def remove_patch(patch_name, recursive=False):
+	log("turning off patch: %s" % patch_name)
 
-	if patch_name == 'all':
+	patch = get_patch(patch_name)
+	all_applied_patches = [ p for p in PATCHES if p.is_applied ]
 
-		# turns off patches in the correct order...
+	# see if something is depending on our patch.
+	for applied_patch in all_applied_patches:
+		if patch_name in applied_patch.dependencies:
+			if not recursive:
+				print_err_and_exit('Not a recursive remove patch. Patch %s required for %s' % (
+					patch_name,
+					applied_patch.patch_name
+				))
+			else:
+				# switch off this parent patch as well.
+				remove_patch(applied_patch.patch_name, recursive)
 
-		patches_on = [ p for p in PATCHES if p.is_applied ]
-		patch_names = [ p.patch_name for p in patches_on ]
-		switch_off_order = []
+	log("actual remove of patch: %s" % patch_name)
+	# can now safely remove this patch.
+	patch = get_patch(patch_name)
 
-		while len(patches_on) > 0:
+	if patch is None:
+		print_err_and_exit('patch %s not found' % patch_name)
 
-			change_made = False
+	if not patch.is_applied:
+		print_err_and_exit('patch is not applied')
 
-			for p in patches_on:
-				if len([ dep for dep in p.dependencies in patch_names ]) == 0:
-					switch_off_order.append(p)
-					patch_names.remove(p.patch_name)
-					change_made = True
+	patch_file = os.path.join(
+		PATCHWORK_ROOT,
+		PATCHWORK_FOLDER_NAME,
+		patch_name + '.diff'
+	)
 
-			if not change_made:
-				print_err_and_exit('dependency loop?: %s', patch_names)
-		
-		for p in switch_off_order:
-			do_remove_patch(p.patch_name)
+	patch_cmd = 'patch -uR -i "%s"' % patch_file
 
-	else:
-		do_remove_patch(patch_name)
+	f = os.popen(patch_cmd)
+	patch_result = f.read()
+	f.close()
 
-def do_remove_patch(patch_name):
+	patch.is_applied = False
+	patch.save()
 
-		log("turning off patch: %s" % patch_name)
-		patch = get_patch(patch_name)
-
-		if patch is None:
-			print_err_and_exit('patch %s not found' % patch_name)
-
-		if not patch.is_applied:
-			print_err_and_exit('patch is not applied')
-
-		patch_file = os.path.join(
-			PATCHWORK_ROOT,
-			PATCHWORK_FOLDER_NAME,
-			patch_name + '.diff'
-		)
-
-		patch_cmd = 'patch -uR -i "%s"' % patch_file
-
-		f = os.popen(patch_cmd)
-		patch_result = f.read()
-		f.close()
-
-		patch.is_applied = False
-		patch.save()
-	
-		# update the snapshot.
-		make_snapshot([], force=True)
+	# update the snapshot.
+	make_snapshot([], force=True)
 
 def tag_patch(patch_name):
 
@@ -394,6 +382,8 @@ def delete_patch(patch_name):
 	patch = get_patch(patch_name)
 	if patch is None:
 		print_err_and_exit('patch %s not found')
+	elif patch.is_applied:
+		print_err_and_exit('cannot delete a patch which is currently applied')
 
 	PATCHES.remove(patch)
 
@@ -405,7 +395,6 @@ def delete_patch(patch_name):
 
 	os.remove(prefix + '.diff')
 	os.remove(prefix + '.patchwork')
-
 
 def print_status():
 	applied_patches = [ p for p in PATCHES if p.is_applied ]
@@ -576,7 +565,7 @@ def run(sys_args):
 				if len(args) == 0:
 					print_err_and_exit('need argument <patch_name> or "all"')
 				else:
-					remove_patch(args[0])
+					remove_patch(args[0], True)
 
 			elif cmd == 'tag':
 
@@ -590,7 +579,7 @@ def run(sys_args):
 				if len(sys_args) == 0:
 					print_err_and_exit('need argument <patch_name>')
 				else:
-					tag_patch(args[0])
+					delete_patch(args[0])
 				
 			elif cmd == 'status':
 				print_status()
