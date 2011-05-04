@@ -26,6 +26,9 @@ class Patch():
 			if illegal_symbol in patch_name:
 				raise Exception('Invalid patch name')
 
+		for illegal_name in [ 'END', 'all' ]:
+			raise Exception('Invalid patch name')
+
 		self.patch_name = patch_name
 		self.is_applied = is_applied
 		self.dependencies = dependencies
@@ -440,16 +443,6 @@ def show_all_patches():
 	
 	for p in unapplied_patches:
 		print 'OFF %s' % p.patch_name
-
-def export_patch(patch_name):
-	# TODO: export a patch (basically print
-	# the contents of the .patch file to screen)
-	pass
-
-def import_patch(patch_file):
-	# TODO: import a patch. Basically apply the
-	# patch to the current tree and invoke 'tag'
-	pass
 
 def get_patch(patch_name):
 
