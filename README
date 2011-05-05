@@ -41,14 +41,13 @@ github. It's a piece of crap though.
 
 It's not going to be unique, just a boring half implemented *NIX clone
 designed to show someone at Sun Microsystems (Oracle) so I can get a job
-working on Solaris ten years from now. Screw any real time shit or specialised
-hardware crap in my OS.
+working on Solaris (if it still exists) ten years from now.
 
 All I want is it to be as clean, small and easy to read as MINIX and also
 as functional as Linux.
 
-Not possible you say? It can't be simple and complex? It can't be small and
-contain all the features of Linux? I had this idea. I start thinking about
+Not possible you say? It can't be simple and feature rich? It can't be easy to
+read and heavily optimised? I had this idea. I start thinking about
 writing a patching tool. In git you have a basic simplistic operating system and
 you apply series of patches to it to get more features out. A 'faster
 scheduler' patch. On top of that? A POSIX patch providing full capabilities and
@@ -84,13 +83,9 @@ complexity in managing the project behind the scenes but isn't that the job
 of the project or the team? To manage complexity. You gotta do more work behind
 the scenes to provide so much power but it is doable.
 
-So I start talking to friends about it. It's like rpm. It understand dependencies
-and allows you to merge features in as trees of patches. I think I do a good
-job selling the idea to them although some are skeptical of the complexity
-involved I tell them, dude, there ain't no reason not to see where this idea
-goes. I was so involved in the idea and how it could work that I even thought
-to myself that I could easily write a 100,000 word dissertation of patchwork
-and get a masters at the same time.
+Regardless of me not being able to sell the idea to my friends I can't see
+any reason not to try and write the program. I should finish it to see it
+through to completion.
 
 So I get halfway through writing patchwork and I kind of think to myself, this
 isn't _that_ difficult, there isn't _that_ much to it.
@@ -104,30 +99,18 @@ Fundamentally I can't see what it does. I forced myself to finish it this week
 just to wrap it up.
 
 I thought that even with the existence of #ifdefs in C code in git repos, there
-is a clearly a thought that branches aren't the solution to everything. The
+is a clearly proof that branches aren't the solution to everything. The
 problem is that #ifdefs are in the code are visible. Hidden diffs mean you
 don't know what you're reading or how it lines up with your code.
 
-But I thought I had solutions for these problems. You create a file called
-build_config and every patch would add a line to it so the softwares build
-system or about screen could list which patches were enabled for the build
-allowing you to recreate the source configuration for testing reasons.
-
-Then I thought about patchwork instead being some tool to support 'Make'. You
-just say all: patchwork on blah and it simplifies your make files. You could
-even distribute patchwork with your programs in your repos. Check in your
-patchwork config folder. That's why patchwork is just one file in its
-current implementation.
-
-
-But I don't fucking know anymore. I haven't used the product properly yet and I
+But I don't really know anymore. I haven't used the product properly yet and I
 don't think I will. Half of it doesn't work because I can't see it being useful
 but I can't put my finger on the problem. Can anyone else?
 
 I was telling this idea to an interviewer last week. He asked if it was like Quilt.
 Something similar, written by Andrew Morton, ironically a Linux kernel developer.
-The more I read into it, the more it looks fucking identical to my software. In fact
-his looks more sophisticated my mine because you can edit patches within the chain
+The more I read into it, the more it looks identical to my software. In fact
+his looks more sophisticated than mine because you can edit patches within the chain
 although I don't think his patches are designed to stick around forever. I guess
 the problem is the way the patches, although easily applied, hide the complexity of
 the software in a way that #ifdef's don't.
@@ -136,8 +119,10 @@ In conclusion to my blog post, sometimes you have a good idea and sometimes you
 don't. Sometimes you think you're on to something cool and then it fizzles
 out. I took this project to completion for the sake of completion but I doubt it'll
 make it out of alpha. I'm branding this a failure. A positive, at least I tried
-soemthing failure. Maybe something out of ashes? Probably not. Here's to the next
+something failure. Maybe something out of ashes? Probably not. Here's to the next
 hair brained, open source, idea :-)
+
+It's funny what people think.
 
 ----
 Phillip Taylor. 5th May 2011
