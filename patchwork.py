@@ -157,15 +157,27 @@ def perform_revert():
 	do_apply_patch(TEMP_FILE)
 	os.remove(TEMP_FILE)
 
-def apply_patch(patch_name):
+def apply_patch(patch_name, skip_applied=False):
+
+	if patch_name.upper() == 'ALL':
+		for p in PATCHES:
+			apply_patch(
+				p.patch_name,
+				skip_applied=True
+			)
+		return
 
 	patch = get_patch(patch_name)
+	print 'patch %s, applied: %s, ignore=%s' % (patch_name,patch.is_applied,skip_applied)
 	if patch.is_applied:
-		print_err_and_exit('patch already applied')
+		if skip_applied:
+			return
+		else:
+			print_err_and_exit('patch already applied')
 	
 	# time to switch on dependencies.
 	for dependency in patch.dependencies:
-		apply_patch(dependency)
+		apply_patch(dependency, skip_applied=True)
 
 	patch_filename = os.path.join(
 		PATCHWORK_FOLDER_NAME,
@@ -179,7 +191,15 @@ def apply_patch(patch_name):
 
 	update_snapshot()
 
-def remove_patch(patch_name):
+def remove_patch(patch_name, skip_applied=False):
+
+	if patch_name.upper() == 'ALL':
+		for p in PATCHES:
+			remove_patch(
+				p.patch_name,
+				skip_applied=True
+			)
+		return
 
 	patch = get_patch(patch_name)
 	all_applied_patches = [ p for p in PATCHES if p.is_applied ]
@@ -187,7 +207,10 @@ def remove_patch(patch_name):
 	# see if something is depending on our patch.
 	for applied_patch in all_applied_patches:
 		if patch_name in applied_patch.dependencies:
-			remove_patch(applied_patch.patch_name)
+			remove_patch(
+				applied_patch.patch_name,
+				skip_applied=True
+			)
 
 	# can now safely remove this patch.
 	patch = get_patch(patch_name)
@@ -196,7 +219,10 @@ def remove_patch(patch_name):
 		print_err_and_exit('patch %s not found' % patch_name)
 
 	if not patch.is_applied:
-		print_err_and_exit('patch is not applied')
+		if skip_applied:
+			return
+		else:
+			print_err_and_exit('patch is not applied')
 
 	patch_file = os.path.join(
 		PATCHWORK_FOLDER_NAME,
