@@ -6,7 +6,7 @@ import shutil
 import traceback
 import fnmatch
 
-VERSION = "0.1 (alpha)"
+VERSION = "0.2 (alpha)"
 PATCHWORK_FOLDER_NAME = 'patches'
 TEMP_FILE = PATCHWORK_FOLDER_NAME + '/patchwork_tmp_file'
 
