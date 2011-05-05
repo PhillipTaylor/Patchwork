@@ -168,6 +168,7 @@ def apply_patch(patch_name, skip_applied=False):
 		return
 
 	patch = get_patch(patch_name)
+	print patch_name
 	print 'patch %s, applied: %s, ignore=%s' % (patch_name,patch.is_applied,skip_applied)
 	if patch.is_applied:
 		if skip_applied:
@@ -308,9 +309,16 @@ def delete_patch(patch_name):
 
 	patch = get_patch(patch_name)
 	if patch is None:
-		print_err_and_exit('patch %s not found')
+		print_err_and_exit('patch %s not found' % patch_name)
 	elif patch.is_applied:
 		print_err_and_exit('cannot delete a patch which is currently applied')
+	
+	# ensure no patches depend on this patch (recursively!)
+	dependencies = show_dependencies_for_patch(patch_name)
+	if len(dependencies) > 0:
+		print_err_and_exit(
+			'dependencies must be deleted before this patch can be deleted'
+		)
 
 	PATCHES.remove(patch)
 
@@ -404,6 +412,26 @@ def get_patch(patch_name):
 			return p
 	
 	return None
+
+def show_dependencies_for_patch(patch_name):
+
+	depends = []
+
+	for p in PATCHES:
+		if patch_name in p.dependencies:
+
+			depends.append(p.patch_name)
+
+			related_patch_deps = show_dependencies_for_patch(p.patch_name)
+			depends.extend(related_patch_deps)
+
+	unique_depends = []
+	for d in depends:
+		if d not in unique_depends:
+			unique_depends.append(d)
+			print '%s -> %s' % (patch_name, d)
+
+	return unique_depends
 
 def get_dependencies():
 	return [ p.patch_name for p in PATCHES if p.is_applied ]
