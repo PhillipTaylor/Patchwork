@@ -142,7 +142,10 @@ def load_patches():
 			print_err_and_exit('Corrupted patchfile: %s', patch_desc_file)
 
 def print_diff():
-	print get_diff()
+	changes = get_diff()
+
+	if changes != '':
+		print get_diff()
 
 def perform_revert():
 
@@ -168,8 +171,6 @@ def apply_patch(patch_name, skip_applied=False):
 		return
 
 	patch = get_patch(patch_name)
-	print patch_name
-	print 'patch %s, applied: %s, ignore=%s' % (patch_name,patch.is_applied,skip_applied)
 	if patch.is_applied:
 		if skip_applied:
 			return
@@ -342,7 +343,6 @@ def print_status():
 		print "No patches are on"
 
 def print_describe(patch_name):
-	print 'describing %s' % patch_name
 
 	patch = get_patch(patch_name)
 
@@ -478,9 +478,7 @@ def update_snapshot():
 
 def copy_dir(src_dir, dst_dir, exclude_list=[]):
 
-	print "here"
 	for f in os.listdir(src_dir):
-		print "in here"
 
 		if f in exclude_list:
 			continue
