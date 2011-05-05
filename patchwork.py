@@ -6,14 +6,14 @@ import shutil
 import traceback
 import fnmatch
 
-VERSION = "0.2 (alpha)"
+VERSION = "0.3 (alpha)"
 PATCHWORK_FOLDER_NAME = 'patches'
 TEMP_FILE = PATCHWORK_FOLDER_NAME + '/patchwork_tmp_file'
 
 PATCHWORK_ROOT = None
 PATCHES = []
 
-DEBUG = False
+DEBUG = True
 
 # patch names are filenames. (with .patchwork on the end)
 # disallowed patch names are: 'all' and 'END' or things that can't go in filenames
@@ -24,10 +24,11 @@ class Patch():
 
 		for illegal_symbol in [ '\\', '/', '*', '.', '?', '"' ]:
 			if illegal_symbol in patch_name:
-				raise Exception('Invalid patch name')
+				raise Exception('Invalid patch name: %s' % patch_name)
 
 		for illegal_name in [ 'END', 'all' ]:
-			raise Exception('Invalid patch name')
+			if illegal_name == patch_name:
+				raise Exception('Invalid patch name: %s' % patch_name)
 
 		self.patch_name = patch_name
 		self.is_applied = is_applied
@@ -36,7 +37,6 @@ class Patch():
 
 	@classmethod
 	def load_from_file(module, filename):
-		log('load patch from file: %s' % filename)
 
 		patch_file_data = open(filename, 'r')
 
@@ -118,119 +118,46 @@ def patchwork_init():
 
 	try:
 		os.mkdir(PATCHWORK_FOLDER_NAME)
+		
+		move_to_patchwork_root() # should go nowhere, just set variable.
+		update_snapshot()
 
 	except OSError, e:
 		print_err_and_exit('could not init patchwork. %s' % e)
 
-def move_to_patchwork_root():
-	global PATCHWORK_ROOT
-
-	orig_cwd = os.getcwd()
-
-	while True:
-		if os.path.isdir(PATCHWORK_FOLDER_NAME):
-			PATCHWORK_ROOT = os.getcwd()
-			break
-
-		# root directory on *nix systems.
-		# the "give up" claus
-		# TODO add support for windows.
-		if os.getcwd() == '/': 
-			break
-
-		os.chdir(os.pardir)
-	
-	if PATCHWORK_ROOT is None:
-		# reset to original working directory
-		os.chdir(orig_cwd)
-	
 def load_patches():
 	global PATCHES
 
-	patches_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME)
-
-	for patch_file in os.listdir(patches_dir):
+	for patch_file in os.listdir(PATCHWORK_FOLDER_NAME):
 		if not fnmatch.fnmatch(patch_file, '*.patchwork'):
 			continue
 	
 		try:
 
-			patch_desc_file = os.path.join(patches_dir, patch_file)
+			patch_desc_file = os.path.join(PATCHWORK_FOLDER_NAME, patch_file)
 			patch = Patch.load_from_file(patch_desc_file)
 			PATCHES.append(patch)
 
 		except (ValueError, IOError), e:
 			print_err_and_exit('Corrupted patchfile: %s', patch_desc_file)
 
-# args expected to be list of files to take
-# a snapshot of, or empty list if everything
-def make_snapshot(args, force=False):
+def print_diff():
+	print get_diff()
 
-	snapshot_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
+def perform_revert():
 
-	if os.path.exists(snapshot_dir):
-		if force:
-			shutil.rmtree(os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot'))
-		else:
-			print_err_and_exit(
-			"""snapshot already exists. use 'patchwork revert' to undo those changes.
-alernatively use 'patchwork tag' to store this as a patch. Then changes
-from here are considered to be depended on the work done so far.
-			""")
+	# write the current diff state out
+	diff = get_diff(reverse=True)
 
-	os.mkdir(snapshot_dir)
-
-	if len(args) == 0:
-		copy_dir(PATCHWORK_ROOT, snapshot_dir, exclude_list=[ PATCHWORK_FOLDER_NAME ])
-	else:
-		# valid all args up front.
-		for file in args:
-			if not os.path.exists(file):
-				print_err_and_exit("file doesn't exist: %s" % file)
-
-		for file in args:
-			shutil.copyfile(file, snapshot_dir)
-
-def print_diff(args):
-	print get_diff(args)
-
-def get_diff(args, reverse=False):
-
-	dst_dir = os.path.join(PATCHWORK_ROOT, PATCHWORK_FOLDER_NAME, 'snapshot')
-
-	if reverse:
-		diff_cmd = 'diff -uN "%(root)s" "%(pw_dir)s/snapshot" --exclude="%(pw_dir)s"' % {
-			'root'   : PATCHWORK_ROOT,
-			'pw_dir' : PATCHWORK_FOLDER_NAME
-		}
-	else:
-		diff_cmd = 'diff -uN "%(pw_dir)s/snapshot" "%(root)s" --exclude="%(pw_dir)s"' % {
-			'root'   : PATCHWORK_ROOT,
-			'pw_dir' : PATCHWORK_FOLDER_NAME
-		}
-
-	f = os.popen(diff_cmd)
-	diff = f.read()
-	return diff
-
-def perform_revert(args):
-
-	diff = get_diff(args, reverse=True)
-
-	# write the actual patch out.
 	f = open(TEMP_FILE, 'w')
 	f.write(diff)
 	f.close()
 
-	# now revert it!
-	patch_cmd = 'patch -uN -i "%s"' % TEMP_FILE
-
-	f = os.popen(patch_cmd)
-	patch_result = f.read()
-	f.close()
+	# then reverse it
+	do_apply_patch(TEMP_FILE)
+	os.remove(TEMP_FILE)
 
 def apply_patch(patch_name):
-	log("applying %s" % patch_name)
 
 	patch = get_patch(patch_name)
 	if patch.is_applied:
@@ -241,25 +168,18 @@ def apply_patch(patch_name):
 		apply_patch(dependency)
 
 	patch_filename = os.path.join(
-		PATCHWORK_ROOT,
 		PATCHWORK_FOLDER_NAME,
 		patch_name + '.diff'
 	)
-	
-	patch_cmd = 'patch -u -i "%s"' % patch_filename
 
-	f = os.popen(patch_cmd)
-	patch_result = f.read()
-	f.close()
-		
+	do_apply_patch(patch_filename)
+
 	patch.is_applied = True
 	patch.save()
 
-	# update the snapshot.
-	make_snapshot([], force=True)
+	update_snapshot()
 
-def remove_patch(patch_name, recursive=False):
-	log("turning off patch: %s" % patch_name)
+def remove_patch(patch_name):
 
 	patch = get_patch(patch_name)
 	all_applied_patches = [ p for p in PATCHES if p.is_applied ]
@@ -267,16 +187,8 @@ def remove_patch(patch_name, recursive=False):
 	# see if something is depending on our patch.
 	for applied_patch in all_applied_patches:
 		if patch_name in applied_patch.dependencies:
-			if not recursive:
-				print_err_and_exit('Not a recursive remove patch. Patch %s required for %s' % (
-					patch_name,
-					applied_patch.patch_name
-				))
-			else:
-				# switch off this parent patch as well.
-				remove_patch(applied_patch.patch_name, recursive)
+			remove_patch(applied_patch.patch_name)
 
-	log("actual remove of patch: %s" % patch_name)
 	# can now safely remove this patch.
 	patch = get_patch(patch_name)
 
@@ -287,34 +199,23 @@ def remove_patch(patch_name, recursive=False):
 		print_err_and_exit('patch is not applied')
 
 	patch_file = os.path.join(
-		PATCHWORK_ROOT,
 		PATCHWORK_FOLDER_NAME,
 		patch_name + '.diff'
 	)
 
-	patch_cmd = 'patch -uR -i "%s"' % patch_file
-
-	f = os.popen(patch_cmd)
-	patch_result = f.read()
-	f.close()
+	do_apply_patch(patch_file, reverse=True)
 
 	patch.is_applied = False
 	patch.save()
 
-	# update the snapshot.
-	make_snapshot([], force=True)
+	update_snapshot()
 
 def tag_patch(patch_name):
 
-	diff = get_diff(None)
-
-	patches_path = os.path.join(
-		PATCHWORK_ROOT,
-		PATCHWORK_FOLDER_NAME,
-	)
+	diff = get_diff()
 
 	patch_name_prefix = os.path.join(
-		patches_path,
+		PATCHWORK_FOLDER_NAME,
 		patch_name
 	)
 
@@ -370,14 +271,11 @@ def tag_patch(patch_name):
 	f.close()
 
 	# apply the patch to the snapshot as well
-	make_snapshot([], force=True)
+	update_snapshot()
 
 	# remove at end, so if it fails they can
 	# recover their description again
 	os.remove(TEMP_FILE)
-
-def get_dependencies():
-	return [ p.patch_name for p in PATCHES if p.is_applied ]
 
 def delete_patch(patch_name):
 	global PATCHES
@@ -391,7 +289,6 @@ def delete_patch(patch_name):
 	PATCHES.remove(patch)
 
 	prefix = os.path.join(
-		PATCHWORK_ROOT,
 		PATCHWORK_FOLDER_NAME,
 		patch_name
 	)
@@ -430,7 +327,7 @@ def print_describe(patch_name):
 	
 	print "Description: %s" % patch.patch_desc
 
-def show_all_patches():
+def list_all():
 
 	if len(PATCHES) == 0:
 		print "0 patches in this project"
@@ -444,6 +341,36 @@ def show_all_patches():
 	for p in unapplied_patches:
 		print 'OFF %s' % p.patch_name
 
+def print_usage():
+	print 'patchwork <cmd> <optional arguments>'
+	print 'commands can be from:'
+	print '  -h / help                            prints this message'
+	print '  -v / version                         prints the version'
+	print '  init                                 start using patchwork with this directory as the base.'
+	print '  diff                                 show the differences between this code and the last snapshot'
+	print '  revert                               abort the changes made since the last snapshot'
+	print '  on <patch_name>                      apply a patch (and dependencies to the working direcory). For debugging or to build upon it'
+	print "  off <patch_name>                     remove a patch from the working directory. use 'off all' to return to the base state"
+	print '  tag <patch_name> (-d <description>)  save your changes as a patch. optional description. If you do not provide it, it will be shown to you.'
+	print '  delete <patch_name>                  delete a patch perminently from patchwork'
+	print '  status                               show the status of the working directory'
+	print '  describe <patch_name>                show the description of the patch'
+	print '  list-all                             list all the patches for a given system'
+
+	print '\nFor more information read the documentation online at http://philliptaylor.net'
+
+def print_version():
+	print """
+	Snapshot %s
+	Copyright (C) 2011, Phillip Taylor.
+	This is free software; licensed under the GPL3, see the source for copying conditions.
+	There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
+	PARTICULAR PURPOSE
+	""" % VERSION
+
+# Helper functions below
+# -----------------------------------------------------------------------------
+
 def get_patch(patch_name):
 
 	for p in PATCHES:
@@ -452,9 +379,54 @@ def get_patch(patch_name):
 	
 	return None
 
+def get_dependencies():
+	return [ p.patch_name for p in PATCHES if p.is_applied ]
+
+def get_diff(reverse=False):
+
+	dst_dir = os.path.join(PATCHWORK_FOLDER_NAME, 'snapshot')
+
+	if reverse:
+		diff_cmd = 'diff -uN "%(root)s" "%(pw_dir)s/snapshot" --exclude="%(pw_dir)s"' % {
+			'root'   : PATCHWORK_ROOT,
+			'pw_dir' : PATCHWORK_FOLDER_NAME
+		}
+	else:
+		diff_cmd = 'diff -uN "%(pw_dir)s/snapshot" "%(root)s" --exclude="%(pw_dir)s"' % {
+			'root'   : PATCHWORK_ROOT,
+			'pw_dir' : PATCHWORK_FOLDER_NAME
+		}
+
+	f = os.popen(diff_cmd)
+	diff = f.read()
+	return diff
+
+def do_apply_patch(patch_file, reverse=False):
+
+	if reverse:
+		patch_cmd = 'patch -uR -i "%s"' % patch_file
+	else:
+		patch_cmd = 'patch -u -i "%s"' % patch_file
+
+	f = os.popen(patch_cmd)
+	patch_result = f.read()
+	f.close()
+
+def update_snapshot():
+
+	snapshot_dir = os.path.join(PATCHWORK_FOLDER_NAME, 'snapshot')
+
+	if os.path.exists(snapshot_dir):
+		shutil.rmtree(os.path.join(PATCHWORK_FOLDER_NAME, 'snapshot'))
+	
+	os.mkdir(snapshot_dir)	
+	copy_dir(PATCHWORK_ROOT, snapshot_dir, exclude_list=[ PATCHWORK_FOLDER_NAME ])
+
 def copy_dir(src_dir, dst_dir, exclude_list=[]):
 
+	print "here"
 	for f in os.listdir(src_dir):
+		print "in here"
 
 		if f in exclude_list:
 			continue
@@ -472,67 +444,62 @@ def copy_dir(src_dir, dst_dir, exclude_list=[]):
 		else:
 			shutil.copyfile(f, os.path.join(dst_dir, f))
 
-def print_usage():
-	print 'patchwork <cmd> <optional arguments>'
-	print 'commands can be from:'
-	print '  -h / help                            prints this message'
-	print '  -v / version                         prints the version'
-	print '  init                                 start using patchwork with this directory as the base.'
-	print '  snapshot                             create a snapshot of the current base code so a change can be isolated a patch.'
-	print '  diff                                 show the differences between this code and the last snapshot'
-	print '  revert                               abort the changes made since the last snapshot'
-	print '  on <patch_name>                      apply a patch (and dependencies to the working direcory). For debugging or to build upon it'
-	print "  off <patch_name>                     remove a patch from the working directory. use 'off all' to return to the base state"
-	print '  tag <patch_name> (-d <description>)  save your changes as a patch. optional description. If you do not provide it, it will be shown to you.'
-	print '  delete <patch_name>                  delete a patch perminently from patchwork'
-	print '  status                               show the status of the working directory'
-	print '  describe <patch_name>                show the description of the patch'
-	print '  list-all                             list all the patches for a given system'
+def move_to_patchwork_root():
+	global PATCHWORK_ROOT
 
-	print '\nFor more information read the documentation online at http://philliptaylor.net'
+	orig_cwd = os.getcwd()
 
-def print_version():
-	print """
-	Snapshot %s
-	Copyright (C) 2011, Phillip Taylor.
-	This is free software; see the source for copying conditions.
-	There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
-	PARTICULAR PURPOSE
-	""" % VERSION
+	while True:
+		if os.path.isdir(PATCHWORK_FOLDER_NAME):
+			PATCHWORK_ROOT = os.getcwd()
+			break
 
-def log(msg):
-	if DEBUG:
-		print 'LOG> %s' % msg
+		# root directory on *nix systems.
+		# the "give up" claus
+		# TODO add support for windows.
+		if os.getcwd() == '/': 
+			break
+
+		os.chdir(os.pardir)
+	
+	if PATCHWORK_ROOT is None:
+		# reset to original working directory
+		os.chdir(orig_cwd)
 
 def print_err_and_exit(err_msg):
 	print 'Error: %s' % err_msg
 	sys.exit(1)
 
-def run(sys_args):
+
+def run():
 	global DEBUG
 
 	try:
 
-		if len(sys_args) < 2:
+		if len(sys.argv) < 2:
 			print_usage()
 		else:
 
 			# dont pass debug flag around
-			if '-d' in sys_args:
-				sys_args.remove('-d')
+			if '-d' in sys.argv:
+				sys.argv.remove('-d')
 				DEBUG = True
 
-			cmd = sys_args[1]
-			args = sys_args[2:]
+			cmd = sys.argv[1]
 
 			move_to_patchwork_root()
 
-			# patchwork 'init' runs without loading patches. the rest
-			# expect them.
 			if cmd != 'init' and PATCHWORK_ROOT is None:
 				print_err_and_exit("patchwork has not been configured. Run 'patchwork init'")
-			elif cmd != 'init':
+
+			if cmd not in ('-h', '--help', '-v', '--version', 'init'):
 				load_patches()
+			
+			if cmd in ('on', 'off', 'tag', 'delete', 'describe'):
+				if len(sys.argv) > 2:
+					patch_name = sys.argv[2]
+				else:
+					print_err_and_exit('need argument <patch_name>')
 
 			if cmd in ('-h', '--help'):
 				print_usage()
@@ -540,48 +507,24 @@ def run(sys_args):
 				print_version()
 			elif cmd == 'init':
 				patchwork_init()
-			elif cmd == 'snapshot':
-				make_snapshot(args)
 			elif cmd == 'diff':
-				print_diff(args)
+				print_diff()
 			elif cmd == 'revert':
-				perform_revert(args)
-			elif cmd == 'on':
-
-				if len(args) == 0:
-					print_err_and_exit('need argument <patch_name>')
-				else:
-					apply_patch(args[0])
-
-			elif cmd == 'off':
-
-				if len(args) == 0:
-					print_err_and_exit('need argument <patch_name> or "all"')
-				else:
-					remove_patch(args[0], True)
-
-			elif cmd == 'tag':
-
-				if len(args) == 0:
-					print_err_and_exit('need argument <patch_name>')
-				else:
-					tag_patch(args[0])
-
-			elif cmd == 'delete':
-				
-				if len(sys_args) == 0:
-					print_err_and_exit('need argument <patch_name>')
-				else:
-					delete_patch(args[0])
-				
+				perform_revert()
 			elif cmd == 'status':
 				print_status()
-
-			elif cmd == 'describe':
-				print_describe(args[0])
-
 			elif cmd == 'list-all':
-				show_all_patches()
+				list_all()
+			elif cmd == 'on':
+				apply_patch(patch_name)
+			elif cmd == 'off':
+				remove_patch(patch_name)
+			elif cmd == 'tag':
+				tag_patch(patch_name)
+			elif cmd == 'delete':
+				delete_patch(patch_name)
+			elif cmd == 'describe':
+				print_describe(patch_name)
 
 			else:
 				print_usage()
@@ -589,9 +532,8 @@ def run(sys_args):
 
 	except Exception, e:
 		print 'Unexpected Error: %s' % str(e)
-		if '-d' in sys_args:
+		if DEBUG:
 			traceback.print_exc()
 
-
 if __name__=='__main__':
-	run(sys.argv)
+	run()
